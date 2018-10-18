@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf8
 
-# nobil2osm v0.9.0
+# nobil2osm v0.9.1
 # Converts nobil json dump to osm format for import/update
 # Usage: nobil2.osm [input_filename.json] > output_filename.osm
 # Default input file name is "NOBILdump_all_forever.json"
@@ -69,7 +69,7 @@ if __name__ == '__main__':
 	# Produce OSM file header
 
 	print ('<?xml version="1.0" encoding="UTF-8"?>')
-	print ('<osm version="0.6" generator="nobil2osm v0.0.2">')
+	print ('<osm version="0.6" generator="nobil2osm v0.9.1">')
 
 	node_id = -1000
 	position = ()
@@ -116,18 +116,7 @@ if __name__ == '__main__':
 		else:
 			description = station['csmd']['User_comment']
 
-		if description != '':
-			if station['csmd']['Land_code'] == "NOR":
-				make_osm_line("description:no",description)
-
-			elif station['csmd']['Land_code'] == "SWE":
-				make_osm_line("description:sv",description)
-
-			elif station['csmd']['Land_code'] == "FIN":
-				make_osm_line("description:fi",description)
-
-			elif station['csmd']['Land_code'] == "DAN":
-				make_osm_line("description:da",description)
+		make_osm_line("description:da",description)
 
 		# Generate contact email tag
 
@@ -290,8 +279,8 @@ if __name__ == '__main__':
 
 		payment = {
 			'cellular': False,
-			'debit_card': False,	
-			'credit_card': False,
+			'visa': False,	
+			'mastercard': False,
 			'charging_card': False,
 			'coin': False,
 			'subscription': False,
@@ -305,6 +294,8 @@ if __name__ == '__main__':
 			'bike': False,
 			'short': False
 			}
+
+		capacity_adjustment = 0
 
 		for connector in station['attr']['conn'].values():
 
@@ -350,12 +341,14 @@ if __name__ == '__main__':
 				elif connector['4']['attrvalid'] == '60':  # Type 1/Type 2
 					sockets['type1'] += 1
 					sockets['type2'] += 1
+					capacity_adjustment +=1
 					if '5' in connector:
 						capacity['type2'] = max(capacity['type2'],find_capacity(connector['5']['attrvalid']))
 
 				elif connector['4']['attrvalid'] == '50':  # Type 2 + Chucko CEE 7/4
 					sockets['schuko'] += 1
 					sockets['type2'] += 1
+					capacity_adjustment +=1
 					capacity['schuko'] = max(capacity['schuko'],3.6)
 					if '5' in connector:
 						capacity['type2'] = max(capacity['type2'],find_capacity(connector['5']['attrvalid']))
@@ -375,6 +368,7 @@ if __name__ == '__main__':
 				elif connector['4']['attrvalid'] == '42':  # CHAdeMO + Type 2
 					sockets['chademo'] += 1
 					sockets['type2'] += 1
+					capacity_adjustment += 1
 					if '5' in connector:
 						capacity['chademo'] = max(capacity['chademo'],find_capacity(connector['5']['attrvalid']))
 
@@ -392,6 +386,7 @@ if __name__ == '__main__':
 					sockets['chademo'] += 1
 					sockets['type2_combo'] += 1
 					sockets['type2'] += 1
+					capacity_adjustment += 1
 
 					if '5' in connector:
 						if connector['5']['attrvalid'] == 21:
@@ -443,11 +438,11 @@ if __name__ == '__main__':
 						payment['cellular'] = True
 
 					elif connector['19']['attrvalid'] == '2':  # VISA
-						payment['debit_card'] = True
+						payment['visa'] = True
 
 					elif connector['19']['attrvalid'] == '21':  # VISA, Mastercard and Charging card
-						payment['debit_card'] = True
-						payment['credit_card'] = True
+						payment['visa'] = True
+						payment['mastercard'] = True
 						payment['charging_card'] = True
 				
 					elif connector['19']['attrvalid'] == '20':  # Cellular phone and Charging card
@@ -502,7 +497,7 @@ if __name__ == '__main__':
 
 		# Estimate capacity and produce osm tag
 
-		est_capacity = max(sockets['chademo'], sockets['type2_combo']) + sum(sockets.itervalues()) - sockets['chademo'] - sockets['type2_combo']
+		est_capacity = max(sockets['chademo'], sockets['type2_combo']) + sum(sockets.itervalues()) - sockets['chademo'] - sockets['type2_combo'] - capacity_adjustment
 		make_osm_line("capacity", str(est_capacity))
 
 		# Produce osm tags for authentication
@@ -524,14 +519,14 @@ if __name__ == '__main__':
 
 		# Produce osm tags for payment method
 
-		if payment['debit_card']:
-			make_osm_line("payment:debit_cards", "yes")
+		if payment['visa']:
+			make_osm_line("payment:visa", "yes")
 
-		if payment['credit_card']:
-			make_osm_line("payment:credit_cards", "yes")
+		if payment['mastercard']:
+			make_osm_line("payment:mastercard", "yes")
 
 		if payment['charging_card']:
-			make_osm_line("payment:membership_cards", "yes")
+			make_osm_line("payment:contactless", "yes")
 
 		if payment['cellular']:
 			make_osm_line("payment:mobile_phone", "yes")
@@ -545,6 +540,9 @@ if __name__ == '__main__':
 		if payment['cards']:
 			make_osm_line("payment:cards", "yes")
 
+		if True in payment.values() or authentication['payment']:
+			make_osm_line("fee", "yes")
+
 		# Produce osm access tags for some vehicle types
 
 		if vehicle['van']:
@@ -552,7 +550,7 @@ if __name__ == '__main__':
 		if vehicle['plugin']:
 			make_osm_line("hybrid_car", "yes")
 		if vehicle['bike']:
-			make_osm_line("motorcycle", "yes")
+			make_osm_line("moped", "yes")
 
 
 		# Fix name in the following sections
@@ -637,6 +635,7 @@ if __name__ == '__main__':
 		name = name.replace(" ,", ",")
 		name = name.strip(", ")
 		name = name.replace("  "," ")
+		name = name[0].upper() + name[1:]
 
 
 		# Produce osm tags for name and network
@@ -644,7 +643,7 @@ if __name__ == '__main__':
 		make_osm_line("name",name)
 
 		if network_name:
-			make_osm_line("network",network_name)
+			make_osm_line("brand",network_name)
 
 		if name != original_name:
 			make_osm_line("ORIGINAL_NAME",original_name)
