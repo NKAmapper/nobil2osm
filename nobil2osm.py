@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf8
 
-# nobil2osm v0.9.1
+# nobil2osm v0.9.2
 # Converts nobil json dump to osm format for import/update
 # Usage: nobil2.osm [input_filename.json] > output_filename.osm
 # Default input file name is "NOBILdump_all_forever.json"
@@ -69,7 +69,7 @@ if __name__ == '__main__':
 	# Produce OSM file header
 
 	print ('<?xml version="1.0" encoding="UTF-8"?>')
-	print ('<osm version="0.6" generator="nobil2osm v0.9.1">')
+	print ('<osm version="0.6" generator="nobil2osm v0.9.2">')
 
 	node_id = -1000
 	position = ()
@@ -116,7 +116,7 @@ if __name__ == '__main__':
 		else:
 			description = station['csmd']['User_comment']
 
-		make_osm_line("description:da",description)
+		make_osm_line("description",description)
 
 		# Generate contact email tag
 
