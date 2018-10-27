@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf8
 
-# nobil2osm v0.9.2
+# nobil2osm v0.9.3
 # Converts nobil json dump to osm format for import/update
 # Usage: nobil2.osm [input_filename.json] > output_filename.osm
 # Default input file name is "NOBILdump_all_forever.json"
@@ -69,7 +69,7 @@ if __name__ == '__main__':
 	# Produce OSM file header
 
 	print ('<?xml version="1.0" encoding="UTF-8"?>')
-	print ('<osm version="0.6" generator="nobil2osm v0.9.2">')
+	print ('<osm version="0.6" generator="nobil2osm v0.9.3" upload="false">')
 
 	node_id = -1000
 	position = ()
@@ -89,26 +89,25 @@ if __name__ == '__main__':
 		make_osm_line("operator",station['csmd']['Owned_by'])
 		make_osm_line("source","nobil.no")
 
-		make_osm_line("STREET",station['csmd']['Street'])
-		make_osm_line("HOUSE_NUMBER",station['csmd']['House_number'])
-		make_osm_line("POSTCODE",station['csmd']['Zipcode'])
-		make_osm_line("CITY",station['csmd']['City'])
-		make_osm_line("MUNICIPALITY_ID",station['csmd']['Municipality_ID'])
-		make_osm_line("MUNICIPALITY",station['csmd']['Municipality'])
-		make_osm_line("COUNTY_ID",station['csmd']['County_ID'])
+		make_osm_line("ADDRESS",station['csmd']['Street'] + " " + station['csmd']['House_number'] + ", " +\
+								station['csmd']['Zipcode'] + " " + station['csmd']['City'])
+
+#		make_osm_line("MUNICIPALITY_ID",station['csmd']['Municipality_ID'])
+#		make_osm_line("MUNICIPALITY",station['csmd']['Municipality'])
+#		make_osm_line("COUNTY_ID",station['csmd']['County_ID'])
 		make_osm_line("COUNTY",station['csmd']['County'])
 		make_osm_line("COUNTRY",station['csmd']['Land_code'])
 
-		make_osm_line("CREATED",station['csmd']['Created'][:10])
+#		make_osm_line("CREATED",station['csmd']['Created'][:10])
 		make_osm_line("UPDATED",station['csmd']['Updated'][:10])
 
-		make_osm_line("CHARGING_POINTS",str(station['csmd']['Number_charging_points']))
+#		make_osm_line("CHARGING_POINTS",str(station['csmd']['Number_charging_points']))
 
 		# Produce description tag
 
 		if station['csmd']['Description_of_location'] != '':
+			description = station['csmd']['Description_of_location']
 			if station['csmd']['User_comment'] != '':
-				description = station['csmd']['Description_of_location']
 				if not(description[len(description)-1] in ['.','!','?']):
 					description = description + "."
 				description = description + " " + station['csmd']['User_comment']
@@ -116,11 +115,12 @@ if __name__ == '__main__':
 		else:
 			description = station['csmd']['User_comment']
 
+		description = " ".join(description.split())
 		make_osm_line("description",description)
 
 		# Generate contact email tag
 
-		make_osm_line("CONTACT",station['csmd']['Contact_info'])
+#		make_osm_line("CONTACT",station['csmd']['Contact_info'])
 
 		reg = re.search(r'\b([a-zA-Z][a-zA-Z0-9_.+-]*@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b', station['csmd']['Contact_info'])
 		if reg:
@@ -235,12 +235,12 @@ if __name__ == '__main__':
 
 			# Produce OSM tag for time limit
 
-			elif key == '6':
-				if info['trans'] == 'Yes':
-					make_osm_line("TIME_LIMIT", "yes")
-
-				elif info['trans'] == 'No':
-					make_osm_line("TIME_LIMIT", "no")
+#			elif key == '6':
+#				if info['trans'] == 'Yes':
+#					make_osm_line("TIME_LIMIT", "yes")
+#
+#				elif info['trans'] == 'No':
+#					make_osm_line("TIME_LIMIT", "no")
 
 
 		# Loop thorough all connectors for station and fetch info
@@ -635,7 +635,9 @@ if __name__ == '__main__':
 		name = name.replace(" ,", ",")
 		name = name.strip(", ")
 		name = name.replace("  "," ")
-		name = name[0].upper() + name[1:]
+
+		if name[0:6] != "eRoute":
+			name = name[0].upper() + name[1:]
 
 
 		# Produce osm tags for name and network
@@ -645,8 +647,8 @@ if __name__ == '__main__':
 		if network_name:
 			make_osm_line("brand",network_name)
 
-		if name != original_name:
-			make_osm_line("ORIGINAL_NAME",original_name)
+#		if name != original_name:
+#			make_osm_line("ORIGINAL_NAME",original_name)
 
 		# Done with OSM station node
 
