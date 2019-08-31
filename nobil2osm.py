@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf8
 
-# nobil2osm v0.9.3
-# Converts nobil json dump to osm format for import/update
-# Usage: nobil2.osm [input_filename.json] > output_filename.osm
-# Default input file name is "NOBILdump_all_forever.json"
+# nobil2osm
+# Converts nobil api to osm format for import/update
+# Usage: nobil2.osm > output_filename.osm
 
 
 import json
@@ -12,6 +11,10 @@ import cgi
 import HTMLParser
 import sys
 import re
+import urllib2
+
+
+version = "0.9.5"
 
 
 # Produce a tag for OSM file
@@ -41,6 +44,7 @@ def find_capacity(capacity_id):
 		'23': 100, # 100 kW - 500VDC max 200A
 		'22': 135, # 135 kW - 480 VDC max 270A
 		'24': 150, # 150 kW DC
+		'25': 350, # 350 kW DC
 		'20': 50,  # Less then 100 kW + 43 kW - 500VDC max 200A + 400V 3-phase max 63A
 		'21': 50,  # Less then 100 kW + 22 kW - 500VDC max 50A + 400V 3-phase max 32A
 		'0':  0}   # Unspecified
@@ -57,19 +61,16 @@ if __name__ == '__main__':
 
 	# Read all data into memory
 
-	if len(sys.argv) == 1:
-		filename = 'NOBILdump_all_forever.json'
-	else:
-		filename = sys.argv[1]
-
-	with open(filename) as f:
-		nobil_data = json.load(f)
-		f.close()
+	link = "https://nobil.no/api/server/datadump.php?apikey=54f7f3c569d6f583f7ae8294966ddb68"
+	request = urllib2.Request(link)
+	file = urllib2.urlopen(request)
+	nobil_data = json.load(file)
+	file.close()
 
 	# Produce OSM file header
 
 	print ('<?xml version="1.0" encoding="UTF-8"?>')
-	print ('<osm version="0.6" generator="nobil2osm v0.9.3" upload="false">')
+	print ('<osm version="0.6" generator="nobil2osm v%s" upload="false">' % version)
 
 	node_id = -1000
 	position = ()
@@ -440,6 +441,10 @@ if __name__ == '__main__':
 					elif connector['19']['attrvalid'] == '2':  # VISA
 						payment['visa'] = True
 
+					elif connector['19']['attrvalid'] == '3':  # Mastervard and VISA
+						payment['visa'] = True
+						payment['mastercard'] = True
+
 					elif connector['19']['attrvalid'] == '21':  # VISA, Mastercard and Charging card
 						payment['visa'] = True
 						payment['mastercard'] = True
@@ -584,7 +589,7 @@ if __name__ == '__main__':
 			('InCharge',''),
 			('Ionity','') ]
 
-		network_name = []
+		network_name = ""
 
 		for network in network_list:
 
@@ -610,19 +615,19 @@ if __name__ == '__main__':
 				name = network[0] + " " + name.lstrip(", ")
 				network_name = network[0]
 
-		# Lowercase certain words; uppercase others
+		# Lowercase certain words; uppercase others (or a mix)
 
 		for case in ['p-plass', 'p-plats', 'p-hus', 'p-anlegg', 'garasje', 'fellesparkering', 'parkering', 'bygg', u'gästparkering', 'utomhusparkering',
 					 'hotel', 'hotell', 'turisthotell', 'camping', 'fjellstove', 'turisthytte', 'slott', u'gård',
 					 'airport', 'flyplass', 'flygplats', 'lufthamn', 'terminal',
 					 'jernbanestasjon', u'järnvägsstation', 'stasjon', 'station', 't-bane', u'tågstation',
-					 'sentrum', 'centrum', 'torg', 'resecentrum', 'central',
+					 'sentrum', 'centrum', 'torg', 'resecentrum', 'central', 'plass', u'allé', u'allè',
 					 'storsenter', 'senter', u'kjøpesenter', u'köpcenter', u'köpcentrum', u'møbelsenter', 'shopping', 'handelspark', u'handelsområde',
 					 u'industriområde', u'næringspark', 'konferanse', 'konferens',
 					 u'rådhus', 'kommunehus', 'kommunhus', 'omsorgssenter', 'vgs', 'sykehus', 'sjukhus',
 					 'borettslag', 'sameie', 'boligsameie',
 					 u'besøkende', 'ansatte',
-					 'Amfi', 'Coop']:
+					 'Amfi', 'Coop', 'Q-Park']:
 
 			reg = re.search(r'\b(%s)\b' % case, name, flags=re.IGNORECASE|re.UNICODE)
 			if reg:
@@ -635,20 +640,29 @@ if __name__ == '__main__':
 		name = name.replace(" ,", ",")
 		name = name.strip(", ")
 		name = name.replace("  "," ")
+		name = name.strip(" ")
 
 		if name[0:6] != "eRoute":
 			name = name[0].upper() + name[1:]
 
+		# Remove municipality name at the end (for Norway only)
+
+		if station['csmd']['Land_code'] == "NOR":
+			split_name = name.split(" ")
+			network_length = len(network_name.split(" "))
+			if len(split_name) > network_length and split_name[len(split_name)-1].upper() == station['csmd']['Municipality']:
+				name = name.rstrip(split_name[len(split_name)-1])
+				name = name.strip(", ")
 
 		# Produce osm tags for name and network
 
 		make_osm_line("name",name)
 
-		if network_name:
+		if network_name != "":
 			make_osm_line("brand",network_name)
 
-#		if name != original_name:
-#			make_osm_line("ORIGINAL_NAME",original_name)
+		if name != original_name:
+			make_osm_line("NOBIL_NAME",original_name)
 
 		# Done with OSM station node
 
@@ -658,3 +672,4 @@ if __name__ == '__main__':
 	# Produce OSM file footer
 
 	print('</osm>')
+	
