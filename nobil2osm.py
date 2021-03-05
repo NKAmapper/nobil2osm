@@ -1,20 +1,21 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf8
 
 # nobil2osm
-# Converts nobil api to osm format for import/update
+# Converts nobil api to osm format for import/update.
 # Usage: nobil2.osm > output_filename.osm
+# New capacity types etc will produce warnings to console.
+# Contact info, authentication and payment info have been removed from code because apps and RFID are mostly used.
 
 
 import json
-import cgi
-import HTMLParser
+import html
 import sys
 import re
-import urllib2
+import urllib.request
 
 
-version = "0.10.0"
+version = "0.11.0"
 
 
 capacities = {
@@ -54,10 +55,9 @@ def message (text):
 # Produce a tag for OSM file
 
 def make_osm_line(key,value):
-    if value != "":
-		parser = HTMLParser.HTMLParser()
-		value = parser.unescape(value)
-		encoded_value = cgi.escape(value.encode('utf-8'),True)
+	if value != "":
+		value = html.unescape(value)
+		encoded_value = html.escape(value).strip()
 		print ('    <tag k="' + key + '" v="' + encoded_value + '" />')
 
 
@@ -79,8 +79,8 @@ if __name__ == '__main__':
 	# Read all data into memory
 
 	link = "https://nobil.no/api/server/datadump.php?apikey=54f7f3c569d6f583f7ae8294966ddb68"
-	request = urllib2.Request(link)
-	file = urllib2.urlopen(request)
+	request = urllib.request.Request(link)
+	file = urllib.request.urlopen(request)
 	nobil_data = json.load(file)
 	file.close()
 
@@ -122,6 +122,10 @@ if __name__ == '__main__':
 
 		# Produce description tag
 
+		make_osm_line("DESCRIPTION", station['csmd']['Description_of_location'])
+		make_osm_line("COMMENT", station['csmd']['User_comment'])
+
+		'''
 		if station['csmd']['Description_of_location'] != '':
 			description = station['csmd']['Description_of_location']
 			if station['csmd']['User_comment'] != '':
@@ -135,7 +139,6 @@ if __name__ == '__main__':
 		description = " ".join(description.split())
 		make_osm_line("DESCRIPTION",description)
 
-		'''
 		# Generate contact email tag
 
 #		make_osm_line("CONTACT",station['csmd']['Contact_info'])
@@ -449,6 +452,7 @@ if __name__ == '__main__':
 				elif connector['4']['attrvalid'] != "0":   # Unspecified
 					message('Unexpected connector: "%s" - %s\n' % (connector['4']['attrvalid'], connector['4']['trans']))
 
+				'''
 				# Fetch accessibility / authentication info for connector
 
 				if '1' in connector:
@@ -508,6 +512,7 @@ if __name__ == '__main__':
 
 					elif connector['19']['attrvalid'] != '10': # Not Miscellaneous
 						message('Unexpected payment method: "%s" - %s\n' % (connector['19']['attrvalid'], connector['19']['trans']))
+				'''
 
 				# Fetch vehicle type
 
@@ -549,7 +554,7 @@ if __name__ == '__main__':
 
 		# Estimate capacity and produce osm tag
 
-		est_capacity = max(sockets['chademo'], sockets['type2_combo']) + sum(sockets.itervalues()) - sockets['chademo'] - sockets['type2_combo'] - capacity_adjustment
+		est_capacity = max(sockets['chademo'], sockets['type2_combo']) + sum(sockets.values()) - sockets['chademo'] - sockets['type2_combo'] - capacity_adjustment
 
 		if est_capacity > 0:
 			make_osm_line("capacity", str(est_capacity))
@@ -621,7 +626,7 @@ if __name__ == '__main__':
 	    					'lader', 'ladestasjon', 'laddstation', 'laddplats', 'laddpunkten',  'laddgata', 'laddgatan',
 	    					'destinationsladdning', 'destinationsladdare',
 	    					'superladestasjon', 'superladerstasjon', 'superlader', 'supercharger', 'teslalader', 'roadster', 'SC',
-	    					'ved', u'på', 'AS', 'AB', 'Vattenfall', 'Charge and Drive']:
+	    					'ved', 'på', 'AS', 'AB', 'Vattenfall', 'Charge and Drive']:
 
 		    reg = re.search(r'\b(%s)\b' % delete_word, name, flags=re.IGNORECASE|re.UNICODE)
 		    if reg:
@@ -629,33 +634,19 @@ if __name__ == '__main__':
 
 		# Insert network name at the start of station name
 
-		'''
 		network_list = [
-			('Fortum','chargedrive'),
-			(u'Grønn kontakt','gronnkontakt'),
-			('Tesla',''),
-			('BKK','bilkraft'),
-			('Charge365',''),
-			(u'Laddregion Mälardalen',''),
-			('InCharge',''),
-			('Ionity',''),
-			(u'Göteborg Energi', ''),
-			('Bee', 'clever'),
-			('Circle K', ''),
-			('E\.ON', 'eon'), ]  # . is special character
-		'''
-
-		network_list = [
+			('Mer', 'Mer'),
+			('Recharge', 'Recharge'),
 			('Fortum','Fortum'),
 			('Recharge', 'Fortum'),
-			(u'Grønn kontakt', u'Grønn kontakt'),
+			('Grønn kontakt', 'Grønn kontakt'),
 			('Tesla', 'Tesla'),
 			('BKK', 'BKK'),
 			('BKK/Lyse', 'BKK'),
 			('Charge365', 'Charge365'),
 			('InCharge', 'InCharge'),
 			('Ionity', 'Ionity'),
-			(u'Göteborg Energi', u'Göteborg Energi'),
+			('Göteborg Energi', 'Göteborg Energi'),
 			('Bee', 'Bee'),
 			('Circle K', 'Circle K'),
 			('E.ON', 'E.ON'), ]
@@ -695,16 +686,16 @@ if __name__ == '__main__':
 
 		# Lowercase certain words; uppercase others (or a mix)
 
-		for case in ['p-plass', 'p-plats', 'p-hus', 'p-anlegg', 'garasje', 'fellesparkering', 'parkering', 'bygg', u'gästparkering', 'utomhusparkering',
-					 'hotel', 'hotell', 'turisthotell', 'camping', 'fjellstove', 'turisthytte', 'slott', u'gård',
+		for case in ['p-plass', 'p-plats', 'p-hus', 'p-anlegg', 'garasje', 'fellesparkering', 'parkering', 'bygg', 'gästparkering', 'utomhusparkering',
+					 'hotel', 'hotell', 'turisthotell', 'camping', 'fjellstove', 'turisthytte', 'slott', 'gård',
 					 'airport', 'flyplass', 'flygplats', 'lufthamn', 'terminal',
-					 'jernbanestasjon', u'järnvägsstation', 'stasjon', 'station', 't-bane', u'tågstation',
-					 'sentrum', 'centrum', 'torg', 'resecentrum', 'central', 'plass', u'allé', u'allè',
-					 'storsenter', 'senter', u'kjøpesenter', u'köpcenter', u'köpcentrum', u'møbelsenter', 'shopping', 'handelspark', u'handelsområde',
-					 u'industriområde', u'næringspark', 'konferanse', 'konferens',
-					 u'rådhus', 'kommunehus', 'kommunhus', 'omsorgssenter', 'vgs', 'sykehus', 'sjukhus',
+					 'jernbanestasjon', 'järnvägsstation', 'stasjon', 'station', 't-bane', 'tågstation',
+					 'sentrum', 'centrum', 'torg', 'resecentrum', 'central', 'plass', 'allé', 'allè',
+					 'storsenter', 'senter', 'kjøpesenter', 'köpcenter', 'köpcentrum', 'møbelsenter', 'shopping', 'handelspark', 'handelsområde',
+					 'industriområde', 'næringspark', 'konferanse', 'konferens',
+					 'rådhus', 'kommunehus', 'kommunhus', 'omsorgssenter', 'vgs', 'sykehus', 'sjukhus',
 					 'borettslag', 'sameie', 'boligsameie',
-					 u'besøkende', 'ansatte',
+					 'besøkende', 'ansatte',
 					 'Amfi', 'Coop', 'Q-Park']:
 
 			reg = re.search(r'\b(%s)\b' % case, name, flags=re.IGNORECASE|re.UNICODE)
@@ -714,7 +705,7 @@ if __name__ == '__main__':
 		# Remove superfluous spaces
 
 		name = name.replace("- ","")
-		name = name.replace(u"– ","")
+		name = name.replace("– ","")
 		name = name.replace(" ,", ",")
 		name = name.strip(", ")
 		name = name.replace("  "," ")
@@ -738,7 +729,7 @@ if __name__ == '__main__':
 
 		if network_name != "":
 			make_osm_line("brand",network_name)
-		else:
+		elif station['csmd']['Owned_by'] and station['csmd']['Owned_by'] != "-":
 			make_osm_line("operator",station['csmd']['Owned_by'])
 
 		if name != original_name:
@@ -746,13 +737,13 @@ if __name__ == '__main__':
 
 		# Produce amnity station tag
 
-		if not hydrogen or sockets:
+		if not hydrogen or est_capacity > 0:
 			make_osm_line("amenity", "charing_station")
 		else:
 			make_osm_line("amenity", "fuel_station")
 
 		if hydrogen:
-			make_osm_line("fuel:hydrogen", "yes")
+			make_osm_line("fuel:h70", "yes")
 
 		# Done with OSM station node
 
@@ -762,4 +753,3 @@ if __name__ == '__main__':
 	# Produce OSM file footer
 
 	print('</osm>')
-	
