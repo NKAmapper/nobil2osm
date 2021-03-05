@@ -1,5 +1,5 @@
 # nobil2osm
-Converts charging stations from NOBIL to OSM format
+Converts charging stations from NOBIL to OSM format for Norway, Sweden, Finland, Denmark, Iceland
 
 Usage: <code>python nobil2osm.py > output_filename.osm</code>
 
