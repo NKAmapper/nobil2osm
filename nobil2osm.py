@@ -3,7 +3,8 @@
 
 # nobil2osm
 # Converts nobil api to osm format for import/update.
-# Usage: nobil2.osm > output_filename.osm
+# Usage: nobil2.osm
+# The generated OSM file is saved to 'nobil.osm'
 # New capacity types etc will produce warnings to console.
 # Contact info, authentication and payment info have been removed from code because apps and RFID are mostly used.
 
@@ -15,8 +16,10 @@ import re
 import urllib.request
 
 
-version = "0.11.0"
+version = "1.0.0"
 
+
+# Capacities codes in kW
 
 capacities = {
 	'7':  3.6, # 3,6 kW . 230V 1-phase max 16A
@@ -38,10 +41,38 @@ capacities = {
 	'24': 150, # 150 kW DC
 	'30': 225, # 225 kW DC
 	'31': 250, # 250 kW DC
+	'32': 200, # 200 kW DC
+	'33': 300, # 300 kW DC
 	'25': 350, # 350 kW DC
 	'26': 350, # 350 bar
 	'0':  0}   # Unspecified
 
+# Brand names for certain national or regional networks
+# Part 1 of tuple is translated into part 2 name, to allow for translations.
+
+network_list = [
+	# Norway
+	('Mer', 'Mer'),
+#	('Grønn kontakt', 'Mer'),  # Rebranded to Mer
+	('Eviny', 'Eviny'),
+#	('BKK', 'Eviny'),  # Rebranded to Eviny
+	('Eviny/Lyse', 'Eviny/Lyse'),
+	('Charge365', 'Charge365'),
+	('Kople', 'Kople'),
+
+	# Sweden
+	('Bee', 'Bee'),
+	('E.ON', 'E.ON'),
+	('Vattenfall', 'InCharge'),
+	('Göteborg Energi', 'Göteborg Energi'),
+	('OKQ8', 'OKQ8'),
+
+	# International
+	('Tesla', 'Tesla'),
+	('Recharge', 'Recharge'),
+	('Circle K', 'Circle K'),
+	('Fortum','Fortum'),
+	('Ionity', 'Ionity') ]
 
 
 # Output message to console
@@ -58,7 +89,7 @@ def make_osm_line(key,value):
 	if value != "":
 		value = html.unescape(value)
 		encoded_value = html.escape(value).strip()
-		print ('    <tag k="' + key + '" v="' + encoded_value + '" />')
+		file.write ('    <tag k="' + key + '" v="' + encoded_value + '" />\n')
 
 
 # Return capacity/wattage of socket
@@ -76,9 +107,13 @@ def find_capacity(capacity_id):
 
 if __name__ == '__main__':
 
-	# Read all data into memory
 
-	link = "https://nobil.no/api/server/datadump.php?apikey=54f7f3c569d6f583f7ae8294966ddb68"
+	message ("\nnobil2osm\n")
+
+	# Load all charging stations from Nobil
+
+	message ("Loading charging stations from Nobil...\n")
+	link = "https://nobil.no/api/server/datadump.php?apikey=54f7f3c569d6f583f7ae8294966ddb68&format=json"
 	request = urllib.request.Request(link)
 	file = urllib.request.urlopen(request)
 	nobil_data = json.load(file)
@@ -86,21 +121,29 @@ if __name__ == '__main__':
 
 	# Produce OSM file header
 
-	print ('<?xml version="1.0" encoding="UTF-8"?>')
-	print ('<osm version="0.6" generator="nobil2osm v%s" upload="false">' % version)
+	message ("Generating OSM file...\n")
 
+	filename = "nobil.osm"
+	file = open(filename, "w")
+
+	file.write ('<?xml version="1.0" encoding="UTF-8"?>\n')
+	file.write ('<osm version="0.6" generator="nobil2osm v%s" upload="false">\n' % version)
+
+	count = 0
+	network_count = {}
 	node_id = -1000
-	position = ()
+
 
 	# Loop all charging stations and produce OSM tags
 
 	for station in nobil_data['chargerstations']:
 
 		node_id -= 1
+		count += 1
 
 		position = eval(station['csmd']['Position'])
 
-		print('  <node id="' + str(node_id) + '" lat="' + str(position[0]) + '" lon="' + str(position[1]) + '">')
+		file.write('  <node id="' + str(node_id) + '" lat="' + str(position[0]) + '" lon="' + str(position[1]) + '">\n')
 
 #		make_osm_line("amenity","charging_station")  # Moved to end due to hydrogen
 		make_osm_line("ref:nobil",str(station['csmd']['id']))
@@ -126,6 +169,8 @@ if __name__ == '__main__':
 		make_osm_line("COMMENT", station['csmd']['User_comment'])
 
 		'''
+		# Removed the following section to simplify tagging
+
 		if station['csmd']['Description_of_location'] != '':
 			description = station['csmd']['Description_of_location']
 			if station['csmd']['User_comment'] != '':
@@ -241,6 +286,7 @@ if __name__ == '__main__':
 				elif info['trans'] == 'No':
 					make_osm_line("parking:fee", "no")
 
+			'''
 			# Produce OSM tag for reservable
 
 			elif key == '18':
@@ -257,13 +303,13 @@ if __name__ == '__main__':
 
 			# Produce OSM tag for time limit
 
-#			elif key == '6':
-#				if info['trans'] == 'Yes':
-#					make_osm_line("TIME_LIMIT", "yes")
-#
-#				elif info['trans'] == 'No':
-#					make_osm_line("TIME_LIMIT", "no")
+			elif key == '6':
+				if info['trans'] == 'Yes':
+					make_osm_line("TIME_LIMIT", "yes")
 
+				elif info['trans'] == 'No':
+					make_osm_line("TIME_LIMIT", "no")
+			'''
 
 		# Loop all connectors for station and fetch info
 
@@ -313,6 +359,7 @@ if __name__ == '__main__':
 			'battery': False,
 			'plugin': False,
 			'van': False,
+			'moped': False,
 			'bike': False,
 			'short': False
 			}
@@ -419,9 +466,18 @@ if __name__ == '__main__':
 						capacity['chademo'] = max(capacity['chademo'],connector_capacity)
 
 				elif connector['4']['attrvalid'] == '40':  # Tesla Connector
-					sockets['tesla_supercharger'] += 1
-					if '5' in connector:
-						capacity['tesla_supercharger'] = max(capacity['tesla_supercharger'],connector_capacity)
+					if connector_capacity < 50:  # Probably Tesla destination charger
+						sockets['type2'] += 1
+						if '5' in connector:
+							capacity['type2'] = max(capacity['type2'],connector_capacity)
+					elif connector_capacity > 150:  # It is a V3 station, which is CCS/Combo
+						sockets['type2_combo'] += 1
+						if '5' in connector:
+							capacity['type2_combo'] = max(capacity['type2_combo'],connector_capacity)
+					else:
+						sockets['tesla_supercharger'] += 1
+						if '5' in connector:
+							capacity['tesla_supercharger'] = max(capacity['tesla_supercharger'],connector_capacity)
 
 				elif connector['4']['attrvalid'] == '43':  # CHAdeMO + Combo + AC-Type2
 					sockets['chademo'] += 1
@@ -453,6 +509,8 @@ if __name__ == '__main__':
 					message('Unexpected connector: "%s" - %s\n' % (connector['4']['attrvalid'], connector['4']['trans']))
 
 				'''
+				# Removed the following section to simplify tagging
+
 				# Fetch accessibility / authentication info for connector
 
 				if '1' in connector:
@@ -522,7 +580,9 @@ if __name__ == '__main__':
 					elif connector['17']['attrvalid'] == '2':  # Short vehicles
 						vehicle['short'] = True
 					elif connector['17']['attrvalid'] == '3':  # Two-wheel mopeds
-						vehicle['bike'] = True
+						vehicle['moped'] = True
+					elif connector['17']['attrvalid'] == '4':  # Electrical bikes
+						vehicle['bike'] = True						
 					elif connector['17']['attrvalid'] == '5':  # Plug-in hybrid
 						vehicle['plugin'] = True
 					elif connector['17']['attrvalid'] == '6':  # Van
@@ -541,16 +601,16 @@ if __name__ == '__main__':
 		# Produce osm tags with number of sockets per connector type
 
 		for connector_type, number_of_sockets in sockets.items():
-
 			if number_of_sockets > 0:
 				make_osm_line("socket:" + connector_type, str(number_of_sockets))
 		
 		# Produce osm tags with capacity per connector type
 
 		for connector_type, capacity_per_connector in capacity.items():
-
 			if capacity_per_connector > 0.0:
 				make_osm_line("socket:" + connector_type + ":output", str(capacity_per_connector) + "kW")
+
+		max_capacity = max(capacity.values())
 
 		# Estimate capacity and produce osm tag
 
@@ -560,6 +620,8 @@ if __name__ == '__main__':
 			make_osm_line("capacity", str(est_capacity))
 
 		'''
+		# Removed the following section to simplify tagging
+
 		# Produce osm tags for authentication
 
 		if authentication['open']:
@@ -610,8 +672,10 @@ if __name__ == '__main__':
 			make_osm_line("hgv", "yes")
 		if vehicle['plugin']:
 			make_osm_line("hybrid_car", "yes")
-		if vehicle['bike']:
+		if vehicle['moped']:
 			make_osm_line("moped", "yes")
+		if vehicle['bike']:
+			make_osm_line("bicycle", "yes")
 
 
 		# Fix name in the following sections
@@ -625,39 +689,30 @@ if __name__ == '__main__':
 	    					'snabbladdare', 'snabbladdstation', 'snabbladdningsstation', 'snabbladdning', '(snabb)', 'semiladdare',
 	    					'lader', 'ladestasjon', 'laddstation', 'laddplats', 'laddpunkten',  'laddgata', 'laddgatan',
 	    					'destinationsladdning', 'destinationsladdare',
-	    					'superladestasjon', 'superladerstasjon', 'superlader', 'supercharger', 'teslalader', 'roadster', 'SC',
+	    					'superladestasjon', 'superladerstasjon', 'superlader', 'teslalader', 'roadster', 'SC',
 	    					'ved', 'på', 'AS', 'AB', 'Vattenfall', 'Charge and Drive']:
 
 		    reg = re.search(r'\b(%s)\b' % delete_word, name, flags=re.IGNORECASE|re.UNICODE)
 		    if reg:
 		        name = name.replace(reg.group(1), '')
 
-		# Insert network name at the start of station name
-
-		network_list = [
-			('Mer', 'Mer'),
-			('Recharge', 'Recharge'),
-			('Fortum','Fortum'),
-			('Recharge', 'Fortum'),
-			('Grønn kontakt', 'Grønn kontakt'),
-			('Tesla', 'Tesla'),
-			('BKK', 'BKK'),
-			('BKK/Lyse', 'BKK'),
-			('Charge365', 'Charge365'),
-			('InCharge', 'InCharge'),
-			('Ionity', 'Ionity'),
-			('Göteborg Energi', 'Göteborg Energi'),
-			('Bee', 'Bee'),
-			('Circle K', 'Circle K'),
-			('E.ON', 'E.ON'), ]
+		# Insert network name at the start of station name (only for high capacity chargers)
 
 		network_name = ""
 
 		for network in network_list:
-			if station['csmd']['Owned_by'] == network[0]:
-				name = network[1] + " " + name.replace(network[0], "").lstrip(", ").strip()
+			if network[0].lower() in station['csmd']['Owned_by'].lower():
+				name = network[1] + " " + name.replace(network[0], "").replace(network[1], "").lstrip(", ").strip()
 				network_name = network[1]
 				break
+
+		if network_name == "Tesla" and max_capacity < 50:
+			network_name = ""
+
+		if network_name in network_count:
+			network_count[ network_name ] += 1
+		elif network_name:
+			network_count[ network_name ] = 1
 
 			'''
 			# First remove any existing network name from station name
@@ -729,8 +784,10 @@ if __name__ == '__main__':
 
 		if network_name != "":
 			make_osm_line("brand",network_name)
-		elif station['csmd']['Owned_by'] and station['csmd']['Owned_by'] != "-":
+		elif station['csmd']['Owned_by'] and station['csmd']['Owned_by'] not in ["-", "Tesla"]:
 			make_osm_line("operator",station['csmd']['Owned_by'])
+
+		make_osm_line("OWNER", station['csmd']['Owned_by'])
 
 		if name != original_name:
 			make_osm_line("NOBIL_NAME",original_name)
@@ -738,7 +795,7 @@ if __name__ == '__main__':
 		# Produce amnity station tag
 
 		if not hydrogen or est_capacity > 0:
-			make_osm_line("amenity", "charing_station")
+			make_osm_line("amenity", "charging_station")
 		else:
 			make_osm_line("amenity", "fuel_station")
 
@@ -747,9 +804,16 @@ if __name__ == '__main__':
 
 		# Done with OSM station node
 
-		print('  </node>')
+		file.write('  </node>\n')
 
 
 	# Produce OSM file footer
 
-	print('</osm>')
+	file.write('</osm>\n')
+	file.close()
+
+	message("Networks:\n")
+	for network in sorted(network_count, key=network_count.get, reverse=True):
+		message("\t%-20s %5i\n" % (network, network_count[ network ]))
+
+	message ("Saved %i charging stations to '%s'\n\n" % (count, filename))
