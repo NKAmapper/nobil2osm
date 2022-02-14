@@ -16,7 +16,7 @@ import re
 import urllib.request
 
 
-version = "1.0.0"
+version = "1.0.1"
 
 
 # Capacities codes in kW
@@ -54,9 +54,11 @@ network_list = [
 	# Norway
 	('Mer', 'Mer'),
 #	('Grønn kontakt', 'Mer'),  # Rebranded to Mer
+	('Lyse/Eviny', 'Lyse/Eviny'),
+	('Lyse/BKK', 'Lyse/Eviny'),  # BKK rebranded to Eviny
+	('BKK / Lyse', 'Lyse/Eviny'),  # Ditto
 	('Eviny', 'Eviny'),
-#	('BKK', 'Eviny'),  # Rebranded to Eviny
-	('Eviny/Lyse', 'Eviny/Lyse'),
+	('BKK', 'Eviny'),  # Rebranded to Eviny
 	('Charge365', 'Charge365'),
 	('Kople', 'Kople'),
 
@@ -689,7 +691,7 @@ if __name__ == '__main__':
 	    					'snabbladdare', 'snabbladdstation', 'snabbladdningsstation', 'snabbladdning', '(snabb)', 'semiladdare',
 	    					'lader', 'ladestasjon', 'laddstation', 'laddplats', 'laddpunkten',  'laddgata', 'laddgatan',
 	    					'destinationsladdning', 'destinationsladdare',
-	    					'superladestasjon', 'superladerstasjon', 'superlader', 'teslalader', 'roadster', 'SC',
+	    					'superladestasjon', 'superladerstasjon', 'superlader', 'teslalader', 'roadster', 'SC', 'supercharger',
 	    					'ved', 'på', 'AS', 'AB', 'Vattenfall', 'Charge and Drive']:
 
 		    reg = re.search(r'\b(%s)\b' % delete_word, name, flags=re.IGNORECASE|re.UNICODE)
@@ -769,6 +771,9 @@ if __name__ == '__main__':
 		if name[0:6] != "eRoute" and len(name) > 1:
 			name = name[0].upper() + name[1:]
 
+		if network_name == "Tesla":
+			name += " supercharger"  # Official Tesla station name
+
 		# Remove municipality name at the end (for Norway only)
 
 		if station['csmd']['Land_code'] == "NOR":
@@ -799,8 +804,9 @@ if __name__ == '__main__':
 		else:
 			make_osm_line("amenity", "fuel_station")
 
-		if hydrogen:
-			make_osm_line("fuel:h70", "yes")
+		# Questionable data quality
+#		if hydrogen:
+#			make_osm_line("fuel:h70", "yes")
 
 		# Done with OSM station node
 
