@@ -16,7 +16,7 @@ import re
 import urllib.request
 
 
-version = "1.0.1"
+version = "1.0.2"
 
 
 # Capacities codes in kW
@@ -577,7 +577,7 @@ if __name__ == '__main__':
 				# Fetch vehicle type
 
 				if '17' in connector:
-					if connector['17']['attrvalid'] == '1':  # All (battery only) vehicles
+					if connector['17']['attrvalid'] in ['1', '11']:  # All (battery only) vehicles + Rechargeable cars and vans
 						vehicle['battery'] = True
 					elif connector['17']['attrvalid'] == '2':  # Short vehicles
 						vehicle['short'] = True
