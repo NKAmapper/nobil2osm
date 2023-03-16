@@ -16,7 +16,7 @@ import re
 import urllib.request
 
 
-version = "1.0.2"
+version = "1.1.0"
 
 
 # Capacities codes in kW
@@ -88,7 +88,7 @@ def message (text):
 # Produce a tag for OSM file
 
 def make_osm_line(key,value):
-	if value != "":
+	if value:
 		value = html.unescape(value)
 		encoded_value = html.escape(value).strip()
 		file.write ('    <tag k="' + key + '" v="' + encoded_value + '" />\n')
@@ -119,6 +119,10 @@ if __name__ == '__main__':
 	request = urllib.request.Request(link)
 	file = urllib.request.urlopen(request)
 	nobil_data = json.load(file)
+	file.close()
+
+	file = open("nobil.json", "w")
+	json.dump(nobil_data, file, indent=2, ensure_ascii=False)
 	file.close()
 
 	# Produce OSM file header
@@ -256,7 +260,12 @@ if __name__ == '__main__':
 			# Produce OSM tag for availability
 
 			if key == '2':
-				if info['attrvalid'] == '1':        # Public
+				if (station['csmd']['User_comment']
+						and ("endast" in station['csmd']['User_comment'].lower() or "kun" in station['csmd']['User_comment'].lower())
+						and "tesla" in station['csmd']['User_comment'].lower()):  # Tesla cars only
+					make_osm_line("access", "customers")
+
+				elif info['attrvalid'] == '1':      # Public
 					make_osm_line("access", "yes")
 
 				elif info['attrvalid'] == '2':      # Visitors
@@ -367,6 +376,7 @@ if __name__ == '__main__':
 			}
 
 		hydrogen = False
+		biogas = False
 
 		capacity_adjustment = 0
 
@@ -505,7 +515,10 @@ if __name__ == '__main__':
 							capacity['type2_combo'] = max(capacity['type2_combo'],connector_capacity)
 
 				elif connector['4']['attrvalid'] == '70':  # Hydrogen
-					hydrogen = True	
+					hydrogen = True
+
+				elif connector['4']['attrvalid'] in ['80', '81']:  # Biogas LBG, CBG
+					biogas = True
 
 				elif connector['4']['attrvalid'] != "0":   # Unspecified
 					message('Unexpected connector: "%s" - %s\n' % (connector['4']['attrvalid'], connector['4']['trans']))
@@ -577,7 +590,7 @@ if __name__ == '__main__':
 				# Fetch vehicle type
 
 				if '17' in connector:
-					if connector['17']['attrvalid'] in ['1', '11']:  # All (battery only) vehicles + Rechargeable cars and vans
+					if connector['17']['attrvalid'] in ['1', '11', '15']:  # All (battery only) vehicles + Rechargeable cars and vans
 						vehicle['battery'] = True
 					elif connector['17']['attrvalid'] == '2':  # Short vehicles
 						vehicle['short'] = True
@@ -587,17 +600,22 @@ if __name__ == '__main__':
 						vehicle['bike'] = True						
 					elif connector['17']['attrvalid'] == '5':  # Plug-in hybrid
 						vehicle['plugin'] = True
-					elif connector['17']['attrvalid'] == '6':  # Van
+					elif connector['17']['attrvalid'] in ['6', '10', '14']:  # Van, truck and bus
 						vehicle['van'] = True
-					elif connector['17']['attrvalid'] in ['7','8','9']:
+					elif connector['17']['attrvalid'] in ['7','8','9']:  # Hydrogen vehicle
 						hydrogen = True
+					elif connector['17']['attrvalid'] == '16':  # Biogas vehicle
+						biogas = True
 					else:
 						message('Unexpected vehicle type: "%s" - %s\n' % (connector['17']['attrvalid'], connector['17']['trans']))
 
-			# Check for hydrogen
+			# Check for hydrogen and biogas
 
-			if '26' in connector and connector['26']['attrvalid'] == "2":
-				hydrogen == True
+			if '26' in connector:
+				if connector['26']['attrvalid'] == "2":
+					hydrogen == True
+				elif connector['26']['attrvalid'] == "3":
+					biogas == True
 
 
 		# Produce osm tags with number of sockets per connector type
@@ -610,7 +628,7 @@ if __name__ == '__main__':
 
 		for connector_type, capacity_per_connector in capacity.items():
 			if capacity_per_connector > 0.0:
-				make_osm_line("socket:" + connector_type + ":output", str(capacity_per_connector) + "kW")
+				make_osm_line("socket:" + connector_type + ":output", str(capacity_per_connector) + " kW")
 
 		max_capacity = max(capacity.values())
 
@@ -703,7 +721,7 @@ if __name__ == '__main__':
 		network_name = ""
 
 		for network in network_list:
-			if network[0].lower() in station['csmd']['Owned_by'].lower():
+			if station['csmd']['Owned_by']  and network[0].lower() in station['csmd']['Owned_by'].lower():
 				name = network[1] + " " + name.replace(network[0], "").replace(network[1], "").lstrip(", ").strip()
 				network_name = network[1]
 				break
@@ -772,7 +790,7 @@ if __name__ == '__main__':
 			name = name[0].upper() + name[1:]
 
 		if network_name == "Tesla":
-			name += " supercharger"  # Official Tesla station name
+			name += " Supercharger"  # Official Tesla station name
 
 		# Remove municipality name at the end (for Norway only)
 
@@ -799,14 +817,17 @@ if __name__ == '__main__':
 
 		# Produce amnity station tag
 
-		if not hydrogen or est_capacity > 0:
+		if not hydrogen and not biogas or est_capacity > 0:
 			make_osm_line("amenity", "charging_station")
 		else:
 			make_osm_line("amenity", "fuel_station")
 
+
 		# Questionable data quality
 #		if hydrogen:
 #			make_osm_line("fuel:h70", "yes")
+#		if biogas:
+#			make_osm_line("fuel:biogas", "yes")
 
 		# Done with OSM station node
 
