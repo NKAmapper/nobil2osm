@@ -16,7 +16,7 @@ import re
 import urllib.request
 
 
-version = "1.1.0"
+version = "1.1.1"
 
 
 # Capacities codes in kW
@@ -30,11 +30,13 @@ capacities = {
 	'19': 20,  # 20 KW - 500VDC max 50A
 	'11': 22,  # 22 kW - 400 3-phase max 32A
 	'18': 25,  # 230V 3-phase max 63A
+	'37': 30,  # 30 kW DC
 	'12': 43,  # 43 kW - 400 3-phase max 63A	
 	'13': 50,  # 50 kW - 500VDC max 100A
 	'20': 50,  # Less then 100 kW + 43 kW - 500VDC max 200A + 400V 3-phase max 63A
 	'21': 50,  # Less then 100 kW + 22 kW - 500VDC max 50A + 400V 3-phase max 32A
 	'28': 50,  # 50 kW - 400VDC max 125A
+	'38': 62,  # 62.5 kW DC
 	'29': 75,  # 75 kW DC
 	'23': 100, # 100 kW - 500VDC max 200A
 	'22': 135, # 135 kW - 480 VDC max 270A
@@ -45,6 +47,8 @@ capacities = {
 	'33': 300, # 300 kW DC
 	'25': 350, # 350 kW DC
 	'26': 350, # 350 bar
+	'36': 400, # 400 kW DC
+	'39': 500, # 500 kW DC
 	'0':  0}   # Unspecified
 
 # Brand names for certain national or regional networks
@@ -53,14 +57,13 @@ capacities = {
 network_list = [
 	# Norway
 	('Mer', 'Mer'),
-#	('Grønn kontakt', 'Mer'),  # Rebranded to Mer
-	('Lyse/Eviny', 'Lyse/Eviny'),
-	('Lyse/BKK', 'Lyse/Eviny'),  # BKK rebranded to Eviny
-	('BKK / Lyse', 'Lyse/Eviny'),  # Ditto
 	('Eviny', 'Eviny'),
-	('BKK', 'Eviny'),  # Rebranded to Eviny
+	('Lyse', 'Lyse'),
 	('Charge365', 'Charge365'),
 	('Kople', 'Kople'),
+	('Ragde Charge', 'Ragde Charge'),
+	('Uno-X', 'Uno-X'),
+	('Uno X', 'Uno-X'),
 
 	# Sweden
 	('Bee', 'Bee'),
@@ -71,10 +74,14 @@ network_list = [
 
 	# International
 	('Tesla', 'Tesla'),
+#	('Shell Recharge', 'Shell Recharge'),
+	('Community by Shell Recharge', 'Shell Recharge'),
 	('Recharge', 'Recharge'),
 	('Circle K', 'Circle K'),
+	('Circle-K', 'Circle K'),
 	('Fortum','Fortum'),
 	('Ionity', 'Ionity') ]
+
 
 
 # Output message to console
@@ -114,26 +121,44 @@ if __name__ == '__main__':
 
 	# Load all charging stations from Nobil
 
-	message ("Loading charging stations from Nobil...\n")
-	link = "https://nobil.no/api/server/datadump.php?apikey=54f7f3c569d6f583f7ae8294966ddb68&format=json"
-	request = urllib.request.Request(link)
-	file = urllib.request.urlopen(request)
-	nobil_data = json.load(file)
-	file.close()
+	if len(sys.argv) > 1 and ".json" in sys.argv[1]:
+		message ("Loading charging stations from '%s'...\n" % sys.argv[1])
+		file = open(sys.argv[1])
+		nobil_data = json.load(file)
+		file.close()
 
-	file = open("nobil.json", "w")
-	json.dump(nobil_data, file, indent=2, ensure_ascii=False)
-	file.close()
+	else:
+		message ("Loading charging stations from Nobil api...\n")
+		link = "https://nobil.no/api/server/datadump.php?apikey=54f7f3c569d6f583f7ae8294966ddb68&format=json"
+		request = urllib.request.Request(link)
+		file = urllib.request.urlopen(request)
+		nobil_data = json.load(file)
+		file.close()
+
+		file = open("nobil.json", "w")
+		json.dump(nobil_data, file, indent=2, ensure_ascii=False)
+		file.close()
+		message ("Saved %i charging stations to 'nobil.json'\n" % len(nobil_data['chargerstations']))
+
+	# Only output selected country, if any
+
+	if len(sys.argv) > 1 and any(sys.argv[1].upper() == country for country in ["NOR", "SWE", "FIN", "DNK", "ISL"]):
+		country = sys.argv[1].upper()
+	else:
+		country = ""
 
 	# Produce OSM file header
 
 	message ("Generating OSM file...\n")
 
-	filename = "nobil.osm"
+	if country:
+		filename = "nobil_" + country.lower() + ".osm"
+	else:
+		filename = "nobil.osm"
 	file = open(filename, "w")
 
 	file.write ('<?xml version="1.0" encoding="UTF-8"?>\n')
-	file.write ('<osm version="0.6" generator="nobil2osm v%s" upload="false">\n' % version)
+	file.write ('<osm version="0.6" generator="nobil2osm v%s" upload="false" download="never">\n' % version)
 
 	count = 0
 	network_count = {}
@@ -144,22 +169,38 @@ if __name__ == '__main__':
 
 	for station in nobil_data['chargerstations']:
 
+		if country and station['csmd']['Land_code'] != country:
+			continue
+
 		node_id -= 1
 		count += 1
 
 		position = eval(station['csmd']['Position'])
+		if position[0] > 90 or position[1] > 180:
+			message ("Unknown coordinate: %s\n" % str(position))
+			continue
 
 		file.write('  <node id="' + str(node_id) + '" lat="' + str(position[0]) + '" lon="' + str(position[1]) + '">\n')
 
 #		make_osm_line("amenity","charging_station")  # Moved to end due to hydrogen
 		make_osm_line("ref:nobil",str(station['csmd']['id']))
+		make_osm_line("OCPI", station['csmd']['ocpidb_mapping_stasjon_id'])
 #		make_osm_line("source","nobil.no")
+
+		make_osm_line("OWNER", station['csmd']['Owned_by'])
+		make_osm_line("OPERATOR", station['csmd']['Operator'])
 
 		make_osm_line("ADDRESS",station['csmd']['Street'] + " " + station['csmd']['House_number'] + ", " +\
 								station['csmd']['Zipcode'] + " " + station['csmd']['City'])
 
+		municipality = station['csmd']['Municipality'].strip()
+		if municipality and station['csmd']['Land_code'] == "NOR":
+			municipality = municipality.title()
+			municipality = municipality.replace(" Og ", " og ").replace(" I ", " i ")
+			municipality = municipality.replace(" (Viken)", "").replace(" (Innlandet)", "").strip()
+
 #		make_osm_line("MUNICIPALITY_ID",station['csmd']['Municipality_ID'])
-#		make_osm_line("MUNICIPALITY",station['csmd']['Municipality'])
+		make_osm_line("MUNICIPALITY",municipality)
 #		make_osm_line("COUNTY_ID",station['csmd']['County_ID'])
 		make_osm_line("COUNTY",station['csmd']['County'])
 		make_osm_line("COUNTRY",station['csmd']['Land_code'])
@@ -256,6 +297,9 @@ if __name__ == '__main__':
 		# Loop each extra information item
 
 		for key, info in station['attr']['st'].items():
+
+			if info is None:
+				continue
 
 			# Produce OSM tag for availability
 
@@ -370,19 +414,23 @@ if __name__ == '__main__':
 			'battery': False,
 			'plugin': False,
 			'van': False,
+			'bus': False,
 			'moped': False,
 			'bike': False,
-			'short': False
+			'short': False,
+			'boat': False
 			}
 
 		hydrogen = False
 		biogas = False
 
+		evse = []
+
 		capacity_adjustment = 0
 
 		for connector in station['attr']['conn'].values():
 
-			if '4' in connector:  # "Connector"
+			if '4' in connector and connector['4'] is not None:  # "Connector"
 
 				# Find capacity
 
@@ -393,6 +441,11 @@ if __name__ == '__main__':
 					elif connector['5']['attrvalid'] in ['26', '27']:  # Hydrogen
 						hydrogen = True
 						connector_capacity = 0
+
+					elif connector['5']['attrvalid'] in ['34', '35']:  # Biogas (34: CBG - Compressed biogas, 35: LBG - Liquified biogas)
+						biogas = True
+						connector_capacity = 0						
+
 					else:
 						connector_capacity = 0
 						message('Unexpected capacity: "%s" - %s\n' % (connector['5']['attrvalid'], connector['5']['trans']))
@@ -406,44 +459,44 @@ if __name__ == '__main__':
 				if connector['4']['attrvalid'] == '14':  # Schuko / Schucko CEE 7/4
 					sockets['schuko'] += 1
 					if '5' in connector:
-						capacity['schuko'] = max(capacity['schuko'],connector_capacity)
+						capacity['schuko'] = max(capacity['schuko'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '29':  # Tesla Connector Roadster
 					sockets['tesla_roadster'] += 1
 					if '5' in connector:
-						capacity['tesla_roadster'] = max(capacity['tesla_roadster'],connector_capacity)
+						capacity['tesla_roadster'] = max(capacity['tesla_roadster'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '34':  # Blue industrial 3-pin
 					sockets['cee_blue'] += 1
 					if '5' in connector:
-						capacity['cee_blue'] = max(capacity['cee_blue'],connector_capacity)
+						capacity['cee_blue'] = max(capacity['cee_blue'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '35':  # Blue industrial 4-pin
 					sockets['cee_blue'] += 1
 					if '5' in connector:
-						capacity['cee_blue'] = max(capacity['cee_blue'],connector_capacity)
+						capacity['cee_blue'] = max(capacity['cee_blue'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '36':  # Red industrial 5-pin
 					sockets['cee_red'] += 1
 					if '5' in connector:
-						capacity['cee_red'] = max(capacity['cee_red'],connector_capacity)
+						capacity['cee_red'] = max(capacity['cee_red'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '31':  # Type 1
 					sockets['type1'] += 1
 					if '5' in connector:
-						capacity['type1'] = max(capacity['type1'],connector_capacity)
+						capacity['type1'] = max(capacity['type1'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '32':  # Type 2
 					sockets['type2'] += 1
 					if '5' in connector:
-						capacity['type2'] = max(capacity['type2'],connector_capacity)
+						capacity['type2'] = max(capacity['type2'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '60':  # Type 1/Type 2
 					sockets['type1'] += 1
 					sockets['type2'] += 1
 					capacity_adjustment +=1
 					if '5' in connector:
-						capacity['type2'] = max(capacity['type2'],connector_capacity)
+						capacity['type2'] = max(capacity['type2'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '50':  # Type 2 + Chucko CEE 7/4
 					sockets['schuko'] += 1
@@ -451,45 +504,45 @@ if __name__ == '__main__':
 					capacity_adjustment +=1
 					capacity['schuko'] = max(capacity['schuko'],3.6)
 					if '5' in connector:
-						capacity['type2'] = max(capacity['type2'],connector_capacity)
+						capacity['type2'] = max(capacity['type2'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '39':  # CCS/Combo
 					sockets['type2_combo'] += 1
 					if '5' in connector:
-						capacity['type2_combo'] = max(capacity['type2_combo'],connector_capacity)
+						capacity['type2_combo'] = max(capacity['type2_combo'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '41':  # Combo + CHAdeMO
 					sockets['type2_combo'] += 1
 					sockets['chademo'] += 1
 					if '5' in connector:
-						capacity['type2_combo'] = max(capacity['type2_combo'],connector_capacity)
-						capacity['chademo'] = max(capacity['chademo'],connector_capacity)
+						capacity['type2_combo'] = max(capacity['type2_combo'], connector_capacity)
+						capacity['chademo'] = max(capacity['chademo'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '42':  # CHAdeMO + Type 2
 					sockets['chademo'] += 1
 					sockets['type2'] += 1
 					capacity_adjustment += 1
 					if '5' in connector:
-						capacity['chademo'] = max(capacity['chademo'],connector_capacity)
+						capacity['chademo'] = max(capacity['chademo'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '30':  # CHAdeMO
 					sockets['chademo'] += 1
 					if '5' in connector:
-						capacity['chademo'] = max(capacity['chademo'],connector_capacity)
+						capacity['chademo'] = max(capacity['chademo'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '40':  # Tesla Connector
 					if connector_capacity < 50:  # Probably Tesla destination charger
 						sockets['type2'] += 1
 						if '5' in connector:
-							capacity['type2'] = max(capacity['type2'],connector_capacity)
+							capacity['type2'] = max(capacity['type2'], connector_capacity)
 					elif connector_capacity > 150:  # It is a V3 station, which is CCS/Combo
 						sockets['type2_combo'] += 1
 						if '5' in connector:
-							capacity['type2_combo'] = max(capacity['type2_combo'],connector_capacity)
+							capacity['type2_combo'] = max(capacity['type2_combo'], connector_capacity)
 					else:
 						sockets['tesla_supercharger'] += 1
 						if '5' in connector:
-							capacity['tesla_supercharger'] = max(capacity['tesla_supercharger'],connector_capacity)
+							capacity['tesla_supercharger'] = max(capacity['tesla_supercharger'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '43':  # CHAdeMO + Combo + AC-Type2
 					sockets['chademo'] += 1
@@ -500,24 +553,24 @@ if __name__ == '__main__':
 					if '5' in connector:
 						if connector['5']['attrvalid'] == 21:
 							# Less then 100 kW + 22 kW - 500VDC max 50A + 400V 3-phase max 32A
-							capacity['chademo'] = max(capacity['chademo'],50)
-							capacity['type2_combo'] = max(capacity['type2_combo'],50)
-							capacity['type2'] = max(capacity['chademo'],22)
+							capacity['chademo'] = max(capacity['chademo'], 50)
+							capacity['type2_combo'] = max(capacity['type2_combo'], 50)
+							capacity['type2'] = max(capacity['chademo'], 22)
 
 						elif connector['5']['attrvalid'] == 20:
 							# Less then 100 kW + 43 kW - 500VDC max 200A + 400V 3-phase max 63A
-							capacity['chademo'] = max(capacity['chademo'],50)
-							capacity['type2_combo'] = max(capacity['type2_combo'],50)
-							capacity['type2'] = max(capacity['chademo'],43)
+							capacity['chademo'] = max(capacity['chademo'], 50)
+							capacity['type2_combo'] = max(capacity['type2_combo'], 50)
+							capacity['type2'] = max(capacity['chademo'], 43)
 
 						else:
-							capacity['chademo'] = max(capacity['chademo'],connector_capacity)					
-							capacity['type2_combo'] = max(capacity['type2_combo'],connector_capacity)
+							capacity['chademo'] = max(capacity['chademo'], connector_capacity)					
+							capacity['type2_combo'] = max(capacity['type2_combo'], connector_capacity)
 
 				elif connector['4']['attrvalid'] == '70':  # Hydrogen
 					hydrogen = True
 
-				elif connector['4']['attrvalid'] in ['80', '81']:  # Biogas LBG, CBG
+				elif connector['4']['attrvalid'] in ['80', '81', '82']:  # Biogas LBG, CBG
 					biogas = True
 
 				elif connector['4']['attrvalid'] != "0":   # Unspecified
@@ -602,6 +655,15 @@ if __name__ == '__main__':
 						vehicle['plugin'] = True
 					elif connector['17']['attrvalid'] in ['6', '10', '14']:  # Van, truck and bus
 						vehicle['van'] = True
+						vehicle['bus'] = True
+					elif connector['17']['attrvalid'] == '13':
+						vehicle['bus'] = True						
+					elif connector['17']['attrvalid'] == '20':
+						vehicle['boat'] = True
+					elif connector['17']['attrvalid'] == '22':  # Rechargeable cars, vans and boats
+						vehicle['battery'] = True
+						vehicle['van'] = True
+						vehicle['boat'] = True
 					elif connector['17']['attrvalid'] in ['7','8','9']:  # Hydrogen vehicle
 						hydrogen = True
 					elif connector['17']['attrvalid'] == '16':  # Biogas vehicle
@@ -611,11 +673,16 @@ if __name__ == '__main__':
 
 			# Check for hydrogen and biogas
 
-			if '26' in connector:
+			if '26' in connector and connector['26'] is not None:
 				if connector['26']['attrvalid'] == "2":
 					hydrogen == True
 				elif connector['26']['attrvalid'] == "3":
 					biogas == True
+
+			# Build list of EVSE ids
+
+			if '28' in connector and connector['28'] is not None:
+				evse.append(connector['28']['attrval'])
 
 
 		# Produce osm tags with number of sockets per connector type
@@ -638,6 +705,11 @@ if __name__ == '__main__':
 
 		if est_capacity > 0:
 			make_osm_line("capacity", str(est_capacity))
+
+		# Output EVSE ids
+
+		if evse:
+			make_osm_line("EVSE", ", ".join(evse))
 
 		'''
 		# Removed the following section to simplify tagging
@@ -690,13 +762,16 @@ if __name__ == '__main__':
 
 		if vehicle['van']:
 			make_osm_line("hgv", "yes")
+		if vehicle['bus']:
+			make_osm_line("bus", "yes")
 		if vehicle['plugin']:
 			make_osm_line("hybrid_car", "yes")
 		if vehicle['moped']:
 			make_osm_line("moped", "yes")
 		if vehicle['bike']:
 			make_osm_line("bicycle", "yes")
-
+		if vehicle['boat']:
+			make_osm_line("boat", "yes")
 
 		# Fix name in the following sections
 
@@ -707,7 +782,7 @@ if __name__ == '__main__':
 
 		for delete_word in ['hurtiglader', 'hurtigladestasjon', 'semihurtiglader', 'semihurtigladestasjon', 'fastcharger',
 	    					'snabbladdare', 'snabbladdstation', 'snabbladdningsstation', 'snabbladdning', '(snabb)', 'semiladdare',
-	    					'lader', 'ladestasjon', 'laddstation', 'laddplats', 'laddpunkten',  'laddgata', 'laddgatan',
+	    					'lader', 'ladestasjon', 'ladestasjoner', 'laddstation', 'laddplats', 'laddpunkten',  'laddgata', 'laddgatan',
 	    					'destinationsladdning', 'destinationsladdare',
 	    					'superladestasjon', 'superladerstasjon', 'superlader', 'teslalader', 'roadster', 'SC', 'supercharger',
 	    					'ved', 'på', 'AS', 'AB', 'Vattenfall', 'Charge and Drive']:
@@ -718,59 +793,68 @@ if __name__ == '__main__':
 
 		# Insert network name at the start of station name (only for high capacity chargers)
 
-		network_name = ""
+		brand = ""
+		operator = ""
+		owner = ""
 
 		for network in network_list:
-			if station['csmd']['Owned_by']  and network[0].lower() in station['csmd']['Owned_by'].lower():
+			if station['csmd']['Owned_by'] and network[0].lower() in station['csmd']['Owned_by'].lower() and "Lillehammer" not in station['csmd']['Owned_by']:
 				name = network[1] + " " + name.replace(network[0], "").replace(network[1], "").lstrip(", ").strip()
-				network_name = network[1]
+				brand = network[1]
 				break
 
-		if network_name == "Tesla" and max_capacity < 50:
-			network_name = ""
+		if brand == "Tesla" and max_capacity < 50:
+			brand = ""
 
-		if network_name in network_count:
-			network_count[ network_name ] += 1
-		elif network_name:
-			network_count[ network_name ] = 1
+		if brand in network_count:
+			network_count[ brand ] += 1
+		elif brand:
+			network_count[ brand ] = 1
 
-			'''
-			# First remove any existing network name from station name
-			reg1 = re.search(r'\b(%s)\b' % network[0], name, flags=re.IGNORECASE|re.UNICODE)
-			if reg1:
-				name = name.replace(reg1.group(1), '')
+		'''
+		# First remove any existing network name from station name
+		reg1 = re.search(r'\b(%s)\b' % network[0], name, flags=re.IGNORECASE|re.UNICODE)
+		if reg1:
+			name = name.replace(reg1.group(1), '')
 
-			# If network present in station name, operator name or contact then insert network name at start of station name
+		# If network present in station name, operator name or contact then insert network name at start of station name
 
-			reg2 = re.search('(%s)' % network[0], station['csmd']['Owned_by'], flags=re.IGNORECASE|re.UNICODE)
-			reg3 = re.search('(%s)' % network[0], station['csmd']['Contact_info'], flags=re.IGNORECASE|re.UNICODE)
-			reg4 = re.search('(%s)' % network[0], station['csmd']['User_comment'], flags=re.IGNORECASE|re.UNICODE)
+		reg2 = re.search('(%s)' % network[0], station['csmd']['Owned_by'], flags=re.IGNORECASE|re.UNICODE)
+		reg3 = re.search('(%s)' % network[0], station['csmd']['Contact_info'], flags=re.IGNORECASE|re.UNICODE)
+		reg4 = re.search('(%s)' % network[0], station['csmd']['User_comment'], flags=re.IGNORECASE|re.UNICODE)
 
-			if network[1] != "":
-				reg5 = re.search('(%s)' % network[1], station['csmd']['Contact_info'], flags=re.IGNORECASE|re.UNICODE)
-				reg6 = re.search('(%s)' % network[1], station['csmd']['User_comment'], flags=re.IGNORECASE|re.UNICODE)
-			else:
-				reg5 = None
-				reg6 = None
+		if network[1] != "":
+			reg5 = re.search('(%s)' % network[1], station['csmd']['Contact_info'], flags=re.IGNORECASE|re.UNICODE)
+			reg6 = re.search('(%s)' % network[1], station['csmd']['User_comment'], flags=re.IGNORECASE|re.UNICODE)
+		else:
+			reg5 = None
+			reg6 = None
 
-			if reg1 or reg2 or reg3 or reg4 or reg5 or reg6:
-				name = network[0].replace("\\", "") + " " + name.lstrip(", ")
-				network_name = network[0].replace("\\", "")
-				break
-			'''
+		if reg1 or reg2 or reg3 or reg4 or reg5 or reg6:
+			name = network[0].replace("\\", "") + " " + name.lstrip(", ")
+			brand = network[0].replace("\\", "")
+			break
+		'''
 
 		# Lowercase certain words; uppercase others (or a mix)
 
-		for case in ['p-plass', 'p-plats', 'p-hus', 'p-anlegg', 'garasje', 'fellesparkering', 'parkering', 'bygg', 'gästparkering', 'utomhusparkering',
+		for case in ['p-plass', 'p-plats', 'p-hus', 'p-anlegg', 'garasje', 'parkering', 'parkeringsplass', 'bygg',
+					 'gjesteparkering', 'gästparkering', 'ansattparkering', 'utomhusparkering', 'fellesparkering', 'pendlerparkering', 'utfartsparkering',
 					 'hotel', 'hotell', 'turisthotell', 'camping', 'fjellstove', 'turisthytte', 'slott', 'gård',
 					 'airport', 'flyplass', 'flygplats', 'lufthamn', 'terminal',
 					 'jernbanestasjon', 'järnvägsstation', 'stasjon', 'station', 't-bane', 'tågstation',
 					 'sentrum', 'centrum', 'torg', 'resecentrum', 'central', 'plass', 'allé', 'allè',
 					 'storsenter', 'senter', 'kjøpesenter', 'köpcenter', 'köpcentrum', 'møbelsenter', 'shopping', 'handelspark', 'handelsområde',
 					 'industriområde', 'næringspark', 'konferanse', 'konferens',
-					 'rådhus', 'kommunehus', 'kommunhus', 'omsorgssenter', 'vgs', 'sykehus', 'sjukhus',
+					 'rådhus', 'kommunehus', 'kommunhus',
+					 'kirke', 'kyrkje', 'kultursenter', 'kulturhus', 'kino', 'teater', 'bibliotek', 'samfunnshus',
+					 'stadion', 'fritidssenter', 'aktivitetssenter', 'idrettshall', 'flerbrukshall',
+					 'omsorgssenter', 'omsorgsboliger', 'sykehus', 'sjukhus', 'helsetun', 'sykehjem', 'sjukeheim',
+					 'skole', 'skule', 'barneskole', 'barneskule', 'ungdomsskole', 'ungdomsskule', 'vgs', 'gymnas', 'fagskole', 'fagskule',
+					 'kulturskole', 'kulturskule', 'folkehøyskole', 'folkehøgskule', 'katedralskole', 'oppvekstsenter', 'barnehage', 'barnehave',
+					 'kommune', 'fylkeskommune',
 					 'borettslag', 'sameie', 'boligsameie',
-					 'besøkende', 'ansatte',
+					 'besøkende', 'ansatte', 'gjester', 'tjenestebiler',
 					 'Amfi', 'Coop', 'Q-Park']:
 
 			reg = re.search(r'\b(%s)\b' % case, name, flags=re.IGNORECASE|re.UNICODE)
@@ -779,8 +863,8 @@ if __name__ == '__main__':
 
 		# Remove superfluous spaces
 
-		name = name.replace("- ","")
-		name = name.replace("– ","")
+		name = name.replace(" - "," ")
+		name = name.replace(" – "," ")
 		name = name.replace(" ,", ",")
 		name = name.strip(", ")
 		name = name.replace("  "," ")
@@ -789,38 +873,83 @@ if __name__ == '__main__':
 		if name[0:6] != "eRoute" and len(name) > 1:
 			name = name[0].upper() + name[1:]
 
-		if network_name == "Tesla":
+		if brand == "Tesla":
 			name += " Supercharger"  # Official Tesla station name
 
-		# Remove municipality name at the end (for Norway only)
+		# Fixes for Kople partners
+
+		if station['csmd']['Owned_by'] and "Ishavskraft" in station['csmd']['Owned_by'] and "Kople" not in name:
+			brand = "Kople"
+			name = "Kople " + name
+			if "Ishavskraft" not in name and "Ishavsveien" not in name:
+				name = name.replace("Kople", "Kople Ishavsveien")
+
+		name = name.replace("Ishavskraft", "Ishavsveien")
+		name = name.replace("PWR UP", "Pwr Up")
+		name = name.replace("LAD OPP", "Lad Opp")
+		name = name.replace("ChargeUP", "ChargeUp")
+
+		for partner in ["Ishavsveien", "Pwr Up", "Lad Opp", "ChargeUp"]:
+			if " " + partner + " " in name:
+				brand = partner
+				operator = "Kople"
+				break
+
+		# Remove municipality name (for Norway only)
 
 		if station['csmd']['Land_code'] == "NOR":
-			split_name = name.split()
-			network_length = len(network_name.split())
-			if len(split_name) > network_length and split_name[-1].upper() == station['csmd']['Municipality'] and ", " in name:
-				name = name.rstrip(split_name[-1])
-				name = name.strip(", ")
+
+			# Remove for Kople
+			if "Kople" in name:
+				for case in [municipality + " kommune", station['csmd']['County'] + " fylkeskommune"]:
+					test_name = name[ : len(name) - len(case) ]
+					if test_name + case == name:
+						test_name = test_name.replace(" , ", " ").replace("  ", " ").strip()
+						if test_name != "Kople":
+							name = test_name
+						owner = case
+					elif case in name:
+						owner = case
+			else:
+				# Remove at the end
+				split_name = name.split()
+				network_length = len(brand.split())
+				if len(split_name) > network_length and split_name[-1] == municipality and ", " in name:
+					name = name.rstrip(split_name[-1])
+					name = name.strip(", ")
 
 		# Produce osm tags for name and network
 
+		if not brand and not operator and station['csmd']['Operator'] and station['csmd']['Operator'] != "-":
+			operator = station['csmd']['Operator']
+
+		if not brand and not owner and station['csmd']['Owned_by'] and station['csmd']['Owned_by'] != "-" and station['csmd']['Owned_by'] != operator:
+			owner = station['csmd']['Owned_by']
+
+#		if operator.endswith(" AS"):
+#			operator = operator[:-3]
+#		if owner.endswith(" AS"):
+#			owner = owner[:-3]
+
 		make_osm_line("name",name)
+		make_osm_line("brand", brand)
+		make_osm_line("operator", operator)
+		make_osm_line("owner", owner)
 
-		if network_name != "":
-			make_osm_line("brand",network_name)
-		elif station['csmd']['Owned_by'] and station['csmd']['Owned_by'] not in ["-", "Tesla"]:
-			make_osm_line("operator",station['csmd']['Owned_by'])
-
-		make_osm_line("OWNER", station['csmd']['Owned_by'])
+	#	if brand != "":
+	#		make_osm_line("brand", brand)
+	#	elif station['csmd']['Owned_by'] and station['csmd']['Owned_by'] not in ["-", "Tesla"]:
+	#		make_osm_line("operator", station['csmd']['Owned_by'])
 
 		if name != original_name:
-			make_osm_line("NOBIL_NAME",original_name)
+			make_osm_line("NOBIL_NAME", original_name)
 
 		# Produce amnity station tag
 
 		if not hydrogen and not biogas or est_capacity > 0:
 			make_osm_line("amenity", "charging_station")
 		else:
-			make_osm_line("amenity", "fuel_station")
+			make_osm_line("amenity", "fuel")
 
 
 		# Questionable data quality
